@@ -10,7 +10,21 @@ const builtin = @import("builtin");
 
 pub fn addCases(cases: *tests.TranslateCContext) void {
     /////////////// Cases that pass for both stage1/stage2 ////////////////
+    cases.add("c default values",
+        \\struct Foo {
+        \\    int x;
+        \\    char *y;
+        \\};
+    ,
+        \\pub const struct_Foo = extern struct {
+        \\    x: c_int = @import("std").mem.zeroInit(c_int),
+        \\    y: [*c]u8 = @import("std").mem.zeroInit([*c]u8),
+        \\};
+        \\
+    );
+
     cases.add_both("simple function prototypes",
+        \\const x: c_int = 0;
         \\void __attribute__((noreturn)) foo(void);
         \\int bar(void);
     ,

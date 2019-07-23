@@ -1532,3 +1532,33 @@ test "isAligned" {
     testing.expect(!isAligned(4, 8));
     testing.expect(!isAligned(4, 16));
 }
+
+pub fn zeroInit(comptime T: type) T {
+    const TypeId = @import("builtin").TypeId;
+
+    var t: T = undefined;
+
+    if (@typeId(T) == TypeId.Bool) {
+        t = false;
+    } else if (@typeId(T) == TypeId.Pointer) {
+        t = null;
+    } else if (@typeId(T) == TypeId.Optional) {
+        t = null;
+    } else if (@typeId(T) == TypeId.Int or @typeId(T) == TypeId.Float) {
+        t = 0;
+    } else if (@typeId(T) == TypeId.Enum) {
+        t = @intToEnum(T, 0);
+    } else if (@typeId(T) == TypeId.Array) {
+        for (t) |*val| {
+            val.* = zeroInit(@typeInfo(T).Array.child);
+        }
+    } else if (@typeId(T) == TypeId.Struct) {
+        inline for (@typeInfo(T).Struct.fields) |field, i| {
+            @field(t, field.name) = zeroInit(field.field_type);
+        }
+    } else {
+        @panic("WTF");
+    }
+
+    return t;
+}

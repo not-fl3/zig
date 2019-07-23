@@ -4346,6 +4346,41 @@ static AstNode *demote_struct_to_opaque(Context *c, const ZigClangRecordDecl *re
     return symbol_node;
 }
 
+static AstNode *trans_create_node_default_zero(Context *c, const clang::FieldDecl *field_decl) {
+    ZigClangQualType qt = bitcast(field_decl->getType());
+    ZigClangSourceLocation source_loc = bitcast(field_decl->getLocation());
+
+    // if (c_is_signed_integer(c, qt) || c_is_unsigned_integer(c, qt) || c_is_float(c, qt)) {
+    //     return trans_create_node_unsigned(c, 0);
+    // }
+    // if (qual_type_is_ptr(qt)) {
+    //     return trans_create_node(c, NodeTypeNullLiteral);
+    // }
+    //return resolve_record_decl(c, field_decl);    
+
+    AstNode *zig_type_node = trans_qual_type(c, qt, source_loc);
+
+//    @import("std").mem.zeroInit(type);
+//
+//    FnCall
+//        FieldAccess
+//            FieldAccess
+//                FnCall (.builtin = true)
+//                    Symbol "import"
+//                    ZigClangStringLiteral "std"
+//                Symbol "mem"
+//            Symbol "zeroInit"
+//        zig_type_node
+
+    AstNode *import_fn_call = trans_create_node_builtin_fn_call_str(c, "import");
+    import_fn_call->data.fn_call_expr.params.append(trans_create_node_str_lit_non_c(c, buf_create_from_str("std")));
+    AstNode *inner_field_access = trans_create_node_field_access_str(c, import_fn_call, "mem");
+    AstNode *outer_field_access = trans_create_node_field_access_str(c, inner_field_access, "zeroInit");
+    AstNode *init_fn_call = trans_create_node_fn_call_1(c, outer_field_access, zig_type_node);
+
+    return init_fn_call;
+}
+
 static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record_decl) {
     auto existing_entry = c->decl_table.maybe_get(ZigClangRecordDecl_getCanonicalDecl(record_decl));
     if (existing_entry) {
@@ -4397,7 +4432,7 @@ static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record
     AstNode *struct_node = trans_create_node(c, NodeTypeContainerDecl);
     struct_node->data.container_decl.kind = container_kind;
     struct_node->data.container_decl.layout = ContainerLayoutExtern;
-
+    
     // TODO handle attribute packed
 
     struct_node->data.container_decl.fields.resize(field_count);
@@ -4417,9 +4452,14 @@ static AstNode *resolve_record_decl(Context *c, const ZigClangRecordDecl *record
         const clang::FieldDecl *field_decl = *it;
 
         AstNode *field_node = trans_create_node(c, NodeTypeStructField);
-        field_node->data.struct_field.name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)field_decl));
-        field_node->data.struct_field.type = trans_qual_type(c, bitcast(field_decl->getType()),
+        AstNode *field_type = trans_qual_type(c, bitcast(field_decl->getType()),
                 bitcast(field_decl->getLocation()));
+        field_node->data.struct_field.name = buf_create_from_str(ZigClangDecl_getName_bytes_begin((const ZigClangDecl *)field_decl));
+        field_node->data.struct_field.type = field_type;
+        AstNode *default_value = trans_create_node_default_zero(c, field_decl);
+        if (default_value != nullptr) {
+            field_node->data.struct_field.value = default_value;
+        }
 
         if (field_node->data.struct_field.type == nullptr) {
             emit_warning(c, bitcast(field_decl->getLocation()),
